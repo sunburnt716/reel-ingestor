@@ -9,7 +9,7 @@ REM Task Scheduler at THIS .bat file.
 REM ---------------------------------------------------------------
 
 REM Full path to the folder containing reel_transcriber.py
-set PROJECT_DIR=C:\Users\swaya\Documents\GitHub\reel-transcriber
+set PROJECT_DIR=C:\Users\swaya\Projects\reel-ingestor
 
 REM Full path to python.exe (run `where python` to find yours)
 set PYTHON=python

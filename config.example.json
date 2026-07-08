@@ -1,5 +1,9 @@
 {
+  "source": "gmail",
+  "gmail_label": "Reels",
+
   "queue_file": "C:\\Users\\swaya\\OneDrive\\Documents\\Obsidian\\Sunny Notes\\Knowledge Base\\00 Raw Sources\\videos\\_inbox.md",
+
   "output_dir": "C:\\Users\\swaya\\OneDrive\\Documents\\Obsidian\\Sunny Notes\\Knowledge Base\\00 Raw Sources\\videos",
   "whisper_model": "base",
   "cookies_from_browser": "chrome"

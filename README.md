@@ -6,10 +6,16 @@ transcribes it with **local Whisper** (no paid API, no account). Transcripts lan
 in the vault's raw-sources folder, ready to be synthesized into notes.
 
 ```
-Phone: reel -> Copy Link -> Shortcut -> email queue        (capture)
-This script: read queue -> yt-dlp -> Whisper -> transcript  (this repo)
-Claude: read transcripts -> synthesize into digests         (in Obsidian)
+Phone: reel -> Copy Link -> Shortcut -> Gmail "Reels" label   (capture)
+This script: read Gmail -> yt-dlp -> Whisper -> transcript      (this repo)
+Claude: read transcripts -> synthesize into digests            (in Obsidian)
 ```
+
+The script can read URLs from two sources, set by `source` in config.json:
+
+- `"gmail"` — reads unread mail in your Reels label, marks them read when done
+  (fully automated, recommended)
+- `"file"` — reads a local text/markdown queue file (simple fallback, manual)
 
 ## Requirements
 
@@ -39,13 +45,44 @@ copy config.example.json config.json     # Windows
 
 | field                  | what it is                                                       |
 | ---------------------- | ---------------------------------------------------------------- |
-| `queue_file`           | text/markdown file the script reads URLs from                    |
+| `source`               | `"gmail"` (automated) or `"file"` (manual queue)                 |
+| `gmail_label`          | the Gmail label reels arrive under (e.g. `Reels`)                |
+| `queue_file`           | only used when `source` is `"file"`                              |
 | `output_dir`           | folder where transcripts are written (your vault videos folder)  |
 | `whisper_model`        | `tiny` / `base` / `small` / `medium` / `large` — bigger = slower |
 | `cookies_from_browser` | `chrome`, `firefox`, etc. Instagram often needs login cookies.   |
 
 `base` is a good default: fast on CPU, decent accuracy. Bump to `small` if
 transcripts are sloppy. You do **not** need a GPU for reel-length clips.
+
+## Gmail setup (one time, free)
+
+To let the script read your Reels label, you create free OAuth credentials:
+
+1. Go to <https://console.cloud.google.com/> and create a new project
+   (any name). It's free; no billing needed for this.
+2. In the project, open **APIs & Services -> Library**, search **Gmail API**,
+   and click **Enable**.
+3. Go to **APIs & Services -> OAuth consent screen**. Choose **External**,
+   fill in the required app name / your email, and save. Under **Test users**,
+   add your own Gmail address (this keeps it in testing mode, which is fine).
+4. Go to **APIs & Services -> Credentials -> Create Credentials -> OAuth client
+   ID**. Application type: **Desktop app**. Create it.
+5. Click **Download JSON** on the new credential. Rename the file to
+   **`credentials.json`** and place it in this project folder (next to
+   `gmail_client.py`).
+6. Set `"source": "gmail"` and `"gmail_label": "Reels"` in `config.json`.
+
+**First run** opens a browser asking you to allow access to your Gmail. Approve
+it. A `token.json` is saved so every later run is silent — no browser, no login.
+
+> `credentials.json` and `token.json` are gitignored. Never commit them.
+
+### What the script touches in Gmail
+
+It only reads messages under your Reels label and removes their **unread** flag
+after a transcript is made (so they aren't reprocessed). It does not delete,
+send, or read anything outside that label.
 
 ## How URLs get into the queue
 
@@ -105,12 +142,14 @@ on anything it missed. Reels aren't time-sensitive, so this is fine in practice.
 ```
 reel-transcriber/
 ├── reel_transcriber.py     # main script
-├── config.example.json     # copy to config.json and edit
+├── gmail_client.py          # Gmail API reader (used when source = gmail)
+├── config.example.json      # copy to config.json and edit
 ├── requirements.txt
 ├── run_transcriber.bat      # Task Scheduler wrapper (Level 2)
 ├── .gitignore
 └── README.md
 ```
 
-`config.json`, `processed.json`, and the log are gitignored so your personal
-paths and state never end up on GitHub.
+`config.json`, `credentials.json`, `token.json`, `processed.json`, and the log
+are all gitignored so your personal paths, secrets, and state never end up on
+GitHub.

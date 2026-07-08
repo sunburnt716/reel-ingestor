@@ -2,9 +2,10 @@
 """
 reel_transcriber.py
 -------------------
-Takes Instagram reel URLs from a queue file, downloads the audio with yt-dlp,
-transcribes it locally with Whisper (free, no API), and writes a Markdown
-transcript into the Obsidian vault's raw-sources folder.
+Takes Instagram reel URLs from a source (a Gmail label, or a local queue file),
+downloads the audio with yt-dlp, transcribes it locally with Whisper (free, no
+API), and writes a Markdown transcript into the Obsidian vault's raw-sources
+folder. Handled reels are marked read in Gmail so they aren't reprocessed.
 
 Level 1: run manually  ->  python reel_transcriber.py
 Level 2: run on a schedule via Windows Task Scheduler (see README).
@@ -176,26 +177,41 @@ def main() -> None:
     config = load_config()
     state = load_state()
 
-    queue_path = Path(config["queue_file"])
     output_dir = Path(config["output_dir"])
     model_size = config.get("whisper_model", "base")
     cookies_from_browser = config.get("cookies_from_browser") or None
+    source = config.get("source", "file").lower()
 
-    urls = read_queue(queue_path)
-    if not urls:
-        logging.info("No URLs in queue. Nothing to do.")
+    # --- Gather work items: each is {"url", "message_id" (or None)} ---
+    if source == "gmail":
+        import gmail_client
+        label = config.get("gmail_label", "Reels")
+        logging.info("Reading reel URLs from Gmail label '%s'...", label)
+        items = gmail_client.get_reel_urls(label)
+    else:
+        queue_path = Path(config["queue_file"])
+        logging.info("Reading reel URLs from queue file: %s", queue_path)
+        items = [{"url": u, "message_id": None} for u in read_queue(queue_path)]
+
+    if not items:
+        logging.info("No new URLs found. Nothing to do.")
         return
 
-    logging.info("Found %d URL(s) in queue.", len(urls))
+    logging.info("Found %d URL(s) to consider.", len(items))
     new_count = 0
 
-    for url in urls:
+    for item in items:
+        url = item["url"]
+        message_id = item.get("message_id")
         shortcode = extract_shortcode(url)
         if not shortcode:
             logging.warning("Could not parse shortcode, skipping: %s", url)
             continue
         if shortcode in state["processed"]:
             logging.info("Already processed, skipping: %s", shortcode)
+            # Still clear it from Gmail so it stops showing as unread.
+            if source == "gmail" and message_id:
+                _safe_mark_read(message_id)
             continue
 
         logging.info("Processing reel %s ...", shortcode)
@@ -218,10 +234,25 @@ def main() -> None:
             "output": str(out_path),
         }
         save_state(state)
+
+        # Only mark the email read AFTER a successful transcript, so a failure
+        # leaves it unread to retry next run.
+        if source == "gmail" and message_id:
+            _safe_mark_read(message_id)
+
         new_count += 1
         logging.info("Wrote transcript -> %s", out_path.name)
 
     logging.info("Done. %d new transcript(s) created.", new_count)
+
+
+def _safe_mark_read(message_id: str) -> None:
+    """Mark a Gmail message read, logging but not crashing on failure."""
+    try:
+        import gmail_client
+        gmail_client.mark_read(message_id)
+    except Exception as e:  # noqa: BLE001
+        logging.warning("Could not mark message %s read: %s", message_id, e)
 
 
 if __name__ == "__main__":
