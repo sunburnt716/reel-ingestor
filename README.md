@@ -1,141 +1,255 @@
 # Reel Transcriber
 
-A small, free, local tool that turns saved Instagram reels into text transcripts
-inside an Obsidian vault. It downloads a reel's audio with **yt-dlp** and
-transcribes it with **local Whisper** (no paid API, no account). Transcripts land
-in the vault's raw-sources folder, ready to be synthesized into notes.
+Turn Instagram reels you save on your phone into searchable text notes,
+automatically. A reel gets shared to an email label, and this tool downloads
+its audio with **yt-dlp**, transcribes it locally with **Whisper** (free, no
+paid API), and drops a Markdown transcript into a folder of your choice — for
+example, an [Obsidian](https://obsidian.md) vault.
 
 ```
-Phone: reel -> Copy Link -> Shortcut -> Gmail "Reels" label   (capture)
-This script: read Gmail -> yt-dlp -> Whisper -> transcript      (this repo)
-Claude: read transcripts -> synthesize into digests            (in Obsidian)
+Phone:  reel -> Copy Link -> Shortcut -> email to a Gmail label   (capture)
+This tool:  read Gmail -> yt-dlp -> Whisper -> Markdown transcript  (this repo)
+You:  read / synthesize the transcripts however you like            (downstream)
 ```
 
-The script can read URLs from two sources, set by `source` in config.json:
+Everything runs locally on your machine. The only external service is the
+Gmail API (free) used to read the URLs out of a label.
 
-- `"gmail"` — reads unread mail in your Reels label, marks them read when done
-  (fully automated, recommended)
-- `"file"` — reads a local text/markdown queue file (simple fallback, manual)
+---
+
+## Table of contents
+
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Gmail setup (one time)](#gmail-setup-one-time)
+- [The capture side (phone shortcut)](#the-capture-side-phone-shortcut)
+- [Running it](#running-it)
+  - [Level 1: manual](#level-1-manual)
+  - [Level 2: scheduled](#level-2-scheduled-windows-task-scheduler)
+- [Troubleshooting](#troubleshooting)
+- [Caveats](#caveats)
+
+---
+
+## How it works
+
+The tool reads Instagram URLs from a **source**, then for each new one:
+
+1. Downloads the audio track with `yt-dlp`.
+2. Transcribes it with a local Whisper model.
+3. Writes a Markdown file (with YAML frontmatter) into your output folder.
+4. Records what it processed so the same reel is never transcribed twice.
+
+There are two sources, selected by `source` in `config.json`:
+
+- **`gmail`** — reads unread messages under a Gmail label, extracts Instagram
+  URLs, and marks each message read once its transcript succeeds. This is the
+  automated path.
+- **`file`** — reads URLs from a local text/Markdown file (one per line).
+  A simple manual fallback that needs no Google setup.
+
+---
 
 ## Requirements
 
-- Python 3.9+
-- **ffmpeg** on your PATH (yt-dlp and Whisper both need it)
-- Everything else installs via pip
+- **Python 3.9+**
+- **ffmpeg** (both yt-dlp and Whisper need it)
+- A **Gmail account** (only if using the `gmail` source)
 
-Install ffmpeg on Windows (easiest): `winget install Gyan.FFmpeg`
-Then close and reopen your terminal so PATH updates.
+Python package dependencies are in `requirements.txt` and install via pip.
 
-## Setup
+---
+
+## Installation
 
 ```bash
-# 1. Clone / open the project, then create a virtual env (recommended)
-python -m venv .venv
-.venv\Scripts\activate          # Windows
+# 1. Clone the repo
+git clone https://github.com/<you>/reel-transcriber.git
+cd reel-transcriber
 
-# 2. Install dependencies
+# 2. (Recommended) create a virtual environment
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS / Linux:
+source .venv/bin/activate
+
+# 3. Install Python dependencies
 pip install -r requirements.txt
 
-# 3. Create your local config from the example
-copy config.example.json config.json     # Windows
-#   then edit config.json — see below
+# 4. Install ffmpeg
+# Windows (winget):
+winget install Gyan.FFmpeg
+# macOS (Homebrew):
+brew install ffmpeg
+# Debian/Ubuntu:
+sudo apt install ffmpeg
 ```
 
-### config.json fields
+After installing ffmpeg, **open a new terminal** so your PATH picks it up, then
+confirm:
 
-| field                  | what it is                                                       |
-| ---------------------- | ---------------------------------------------------------------- |
-| `source`               | `"gmail"` (automated) or `"file"` (manual queue)                 |
-| `gmail_label`          | the Gmail label reels arrive under (e.g. `Reels`)                |
-| `queue_file`           | only used when `source` is `"file"`                              |
-| `output_dir`           | folder where transcripts are written (your vault videos folder)  |
-| `whisper_model`        | `tiny` / `base` / `small` / `medium` / `large` — bigger = slower |
-| `cookies_from_browser` | `chrome`, `firefox`, etc. Instagram often needs login cookies.   |
+```bash
+ffmpeg -version
+```
 
-`base` is a good default: fast on CPU, decent accuracy. Bump to `small` if
-transcripts are sloppy. You do **not** need a GPU for reel-length clips.
+> **Windows note:** `winget` installs ffmpeg as a shim that interactive shells
+> can see but child processes sometimes cannot. If `yt-dlp` or Whisper later
+> reports "ffmpeg not found," set `ffmpeg_location` in your config (see below)
+> to the folder containing `ffmpeg.exe`. To find it:
+> `dir /s /b "%LOCALAPPDATA%\Microsoft\WinGet\Packages\*ffmpeg.exe"`
 
-## Gmail setup (one time, free)
+---
 
-To let the script read your Reels label, you create free OAuth credentials:
+## Configuration
 
-1. Go to <https://console.cloud.google.com/> and create a new project
-   (any name). It's free; no billing needed for this.
-2. In the project, open **APIs & Services -> Library**, search **Gmail API**,
-   and click **Enable**.
-3. Go to **APIs & Services -> OAuth consent screen**. Choose **External**,
-   fill in the required app name / your email, and save. Under **Test users**,
-   add your own Gmail address (this keeps it in testing mode, which is fine).
-4. Go to **APIs & Services -> Credentials -> Create Credentials -> OAuth client
-   ID**. Application type: **Desktop app**. Create it.
-5. Click **Download JSON** on the new credential. Rename the file to
-   **`credentials.json`** and place it in this project folder (next to
-   `gmail_client.py`).
-6. Set `"source": "gmail"` and `"gmail_label": "Reels"` in `config.json`.
+Copy the example and edit your local copy (never commit the real one):
 
-**First run** opens a browser asking you to allow access to your Gmail. Approve
-it. A `token.json` is saved so every later run is silent — no browser, no login.
+```bash
+# Windows
+copy config.example.json config.json
+# macOS / Linux
+cp config.example.json config.json
+```
 
-> `credentials.json` and `token.json` are gitignored. Never commit them.
+| field                  | what it is                                                                 |
+| ---------------------- | -------------------------------------------------------------------------- |
+| `source`               | `"gmail"` (automated) or `"file"` (manual queue)                           |
+| `gmail_label`          | exact Gmail label reels arrive under (case-sensitive, e.g. `Reels`)        |
+| `queue_file`           | only used when `source` is `"file"` — path to a text/Markdown file of URLs |
+| `output_dir`           | folder where transcripts are written                                       |
+| `whisper_model`        | `tiny` / `base` / `small` / `medium` / `large` — bigger = slower, better   |
+| `cookies_from_browser` | `chrome`, `firefox`, `edge`, or `""` to send none. See caveats.            |
+| `ffmpeg_location`      | folder containing `ffmpeg.exe`; leave `""` if ffmpeg is on PATH            |
 
-### What the script touches in Gmail
+Paths on Windows use double backslashes in JSON (`C:\\Users\\you\\...`).
 
-It only reads messages under your Reels label and removes their **unread** flag
-after a transcript is made (so they aren't reprocessed). It does not delete,
-send, or read anything outside that label.
+`base` is a good default: runs on CPU in seconds per reel, no GPU needed.
 
-## How URLs get into the queue
+---
 
-The script reads any Instagram URL it finds in `queue_file`, one per line,
-ignoring blank lines, `#` comments, and markdown/HTML. The iOS Shortcut emails
-reel links to a Gmail label; for now you paste those links into the queue file.
-(A later version can read Gmail directly.)
+## Gmail setup (one time)
 
-## Level 1 — run it manually
+Skip this if you use `source: "file"`.
+
+1. Go to <https://console.cloud.google.com/> and create a project (free).
+2. **APIs & Services -> Library** -> search **Gmail API** -> **Enable**.
+   (If you skip this you'll get a `403 accessNotConfigured` error at runtime.)
+3. **APIs & Services -> Google Auth Platform** (formerly "OAuth consent
+   screen"):
+   - **Audience** tab -> User type **External**.
+   - Add your own Gmail address under **Test users**.
+4. **Credentials -> Create Credentials -> OAuth client ID -> Desktop app.**
+   Download the JSON. It should begin with `{ "installed": { ... }`. If it
+   begins with `"web"`, you picked the wrong type — recreate as Desktop app.
+5. Rename the downloaded file to **`credentials.json`** and place it in the
+   project folder (next to `gmail_client.py`).
+
+On first run the tool opens a browser for a one-time consent. You'll see a
+"Google hasn't verified this app" screen — this is expected for a personal app;
+click **Advanced -> Go to [app] (unsafe) -> Allow**. A `token.json` is cached so
+later runs are silent.
+
+> **Important — testing-mode token expiry:** while the app is in "Testing"
+> status, Google expires the token about every **7 days**, after which a
+> background/scheduled run will hang waiting for a browser consent it can't
+> show. To make it truly hands-off, click **Publish app** on the Google Auth
+> Platform screen to move it to Production. For a single personal user on their
+> own Gmail, accepting the unverified status is fine and it stops the expiry.
+
+### Scope
+
+The tool requests `gmail.modify`. It only reads messages under your chosen
+label and removes their **unread** flag after transcribing. It never sends,
+deletes, or touches anything outside that label.
+
+---
+
+## The capture side (phone shortcut)
+
+This repo handles ingestion; you still need to get reel URLs into the label.
+The reliable pattern on iOS (Instagram's share sheet hands off an image, not a
+clean URL, so read from the clipboard instead):
+
+1. Set up a Gmail filter so mail to `youraddress+reels@gmail.com` skips the
+   inbox and gets your label. (Gmail treats `+anything` as the same inbox.)
+2. Build an iOS Shortcut: **Get Clipboard -> Send Email** (to your `+reels`
+   address, compose sheet off).
+3. Usage: on a reel tap **Share -> Copy Link**, then run the shortcut (a Back
+   Tap gesture or Home Screen icon is fastest).
+
+Any capture method works as long as reel URLs land in the label unread. On
+other platforms, adapt freely.
+
+---
+
+## Running it
+
+### Level 1: manual
 
 ```bash
 python reel_transcriber.py
 ```
 
-It processes every new URL in the queue, skips ones it has already done
-(tracked in `processed.json`), and writes one Markdown transcript per reel into
-`output_dir`. Re-running is safe — it never re-transcribes the same reel twice.
+Processes every new URL from the source, skips ones already done (tracked in
+`processed.json`), and writes one transcript per reel. Safe to re-run.
 
-## Level 2 — run it automatically (Windows Task Scheduler)
+### Level 2: scheduled (Windows Task Scheduler)
 
-1. Edit `run_transcriber.bat` — set `PROJECT_DIR` to where this repo lives and
-   `PYTHON` to your python path (`where python` to find it). If you used a venv,
-   point `PYTHON` at `.venv\Scripts\python.exe`.
-2. Open **Task Scheduler** -> **Create Task** (not "Basic Task").
-   - **General:** name it "Reel Transcriber". Check **Run whether user is logged
-     on or not**.
-   - **Triggers:** New -> **On a schedule** -> Daily, repeat every 1 hour (or
-     whatever cadence you like). Check **Enabled**.
-   - **Settings tab:** check **Run task as soon as possible after a scheduled
-     start is missed** — this is what makes it catch up after the laptop was
-     asleep.
+1. Edit `run_transcriber.bat`: set `PROJECT_DIR` to this folder and `PYTHON` to
+   your Python path (`where python`), or to `.venv\Scripts\python.exe` if you
+   used a venv. **Use the same Python you installed the packages into** — a
+   mismatch here is the most common setup failure.
+2. **Task Scheduler -> Create Task** (not "Basic Task"):
+   - **General:** name it; check **Run whether user is logged on or not**.
+   - **Triggers:** New -> On a schedule -> Daily, repeat every 1 hour.
+   - **Settings:** check **Run task as soon as possible after a scheduled start
+     is missed** (this catches up after the machine was asleep).
    - **Actions:** New -> Start a program -> browse to `run_transcriber.bat`.
-3. Save. Enter your Windows password if prompted.
+3. Save (enter your Windows password if prompted).
 
-### Does it run while the laptop is asleep?
+> A repeating task shows a persistent **"Running"** status for its whole
+> schedule window — that's normal, not a hang. The script itself fires briefly
+> each interval. Trust `reel_transcriber.log`, not the status label.
 
-**No, not reliably.** Task Scheduler does not run during sleep by default, and
-the "Wake the computer to run this task" option is flaky on battery and useless
-from full shutdown. The realistic setup is the **"run as soon as possible after
-a missed start"** option above: whenever the laptop is next awake, it catches up
-on anything it missed. Reels aren't time-sensitive, so this is fine in practice.
+**Does it run while the machine is asleep?** No, not reliably — Task Scheduler
+doesn't run during sleep and the "wake to run" option is flaky on laptops. The
+"run after a missed start" setting above makes it catch up when the machine is
+next awake, which is fine for non-urgent content.
 
-## Caveats (honest ones)
+---
 
-- **Instagram + yt-dlp is finicky.** Public reels usually download; some require
-  the `cookies_from_browser` setting to pass your login. Private/removed reels
-  won't download at all — that's an Instagram restriction, not a bug here.
-- **First run is slow.** Whisper downloads the model file once (a few hundred MB
-  for `base`). After that it's cached.
-- **Audio-only.** This captures the _spoken_ content. On-screen text that's never
-  spoken aloud won't be transcribed.
-- **Local compute.** Transcription uses your CPU. A 60-second reel on `base`
-  takes roughly 10-30 seconds depending on the machine.
+## Troubleshooting
+
+| symptom                                                            | cause & fix                                                                                                                                                                            |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `No new URLs found`                                                | Label name mismatch (case-sensitive!) or messages already read. Search `label:YourLabel is:unread` in Gmail to see exactly what the tool sees.                                         |
+| `ModuleNotFoundError` / "libraries not found"                      | pip installed into a different Python than the one running the script. Run `<your-python> -m pip install -r requirements.txt` with the _exact_ interpreter you launch the script with. |
+| `403 accessNotConfigured`                                          | Gmail API not enabled for the project. Enable it and wait a few minutes.                                                                                                               |
+| `403 access_denied`                                                | Your Gmail isn't a Test user, or app is Internal. Add yourself under Audience -> Test users.                                                                                           |
+| `Could not copy Chrome cookie database`                            | Chrome locks its cookie DB while open. Close Chrome, use `firefox`, or set `cookies_from_browser: ""`.                                                                                 |
+| `ffprobe and ffmpeg not found` / `WinError 2` during transcription | ffmpeg not visible to the subprocess. Set `ffmpeg_location` to the folder holding `ffmpeg.exe`.                                                                                        |
+| Scheduled task hangs on "Running" and never logs progress          | Token expired and it's silently waiting for a browser consent. Run once manually to refresh `token.json`, then **Publish app** to stop the weekly expiry.                              |
+
+The log at `reel_transcriber.log` records every run with timestamps and is the
+source of truth for what actually happened.
+
+---
+
+## Caveats
+
+- **Instagram + yt-dlp is finicky.** Public reels usually download without
+  cookies. Some need `cookies_from_browser` set to a browser you're logged into
+  Instagram on. Private or removed reels won't download at all.
+- **Audio only.** This captures spoken content. On-screen text that's never
+  spoken aloud is not transcribed.
+- **First run downloads the Whisper model** (~140 MB for `base`), once.
+- **Local compute.** A ~60-second reel on `base` transcribes in roughly
+  10-30 seconds on CPU.
+
+---
 
 ## Project layout
 
@@ -145,11 +259,16 @@ reel-transcriber/
 ├── gmail_client.py          # Gmail API reader (used when source = gmail)
 ├── config.example.json      # copy to config.json and edit
 ├── requirements.txt
-├── run_transcriber.bat      # Task Scheduler wrapper (Level 2)
+├── run_transcriber.bat      # Task Scheduler wrapper (Windows, Level 2)
 ├── .gitignore
 └── README.md
 ```
 
 `config.json`, `credentials.json`, `token.json`, `processed.json`, and the log
-are all gitignored so your personal paths, secrets, and state never end up on
-GitHub.
+are gitignored. **Never commit `credentials.json` or `token.json`** — they are
+live secrets.
+
+## License
+
+MIT (or your choice). yt-dlp, Whisper, and the Google client libraries retain
+their own licenses.

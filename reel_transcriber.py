@@ -96,7 +96,12 @@ def read_queue(queue_path: Path) -> list[str]:
 # Core steps
 # --------------------------------------------------------------------------
 
-def download_audio(url: str, workdir: Path, cookies_from_browser: str | None) -> Path | None:
+def download_audio(
+    url: str,
+    workdir: Path,
+    cookies_from_browser: str | None,
+    ffmpeg_location: str | None,
+) -> Path | None:
     """Use yt-dlp to grab the audio track only. Returns path to the audio file."""
     out_template = str(workdir / "%(id)s.%(ext)s")
     cmd = [
@@ -109,6 +114,10 @@ def download_audio(url: str, workdir: Path, cookies_from_browser: str | None) ->
         "--quiet",
         "--no-warnings",
     ]
+    # Point yt-dlp straight at ffmpeg so it doesn't depend on PATH (important
+    # on Windows where winget installs it as a shim that subprocesses can't see).
+    if ffmpeg_location:
+        cmd += ["--ffmpeg-location", ffmpeg_location]
     # Instagram often needs login cookies for full/public content.
     if cookies_from_browser:
         cmd += ["--cookies-from-browser", cookies_from_browser]
@@ -180,7 +189,14 @@ def main() -> None:
     output_dir = Path(config["output_dir"])
     model_size = config.get("whisper_model", "base")
     cookies_from_browser = config.get("cookies_from_browser") or None
+    ffmpeg_location = config.get("ffmpeg_location") or None
     source = config.get("source", "file").lower()
+
+    # Put ffmpeg on PATH for THIS process so Whisper (which shells out to
+    # ffmpeg internally and ignores our --ffmpeg-location flag) can find it too.
+    if ffmpeg_location:
+        import os
+        os.environ["PATH"] = ffmpeg_location + os.pathsep + os.environ.get("PATH", "")
 
     # --- Gather work items: each is {"url", "message_id" (or None)} ---
     if source == "gmail":
@@ -217,7 +233,7 @@ def main() -> None:
         logging.info("Processing reel %s ...", shortcode)
         with tempfile.TemporaryDirectory() as tmp:
             workdir = Path(tmp)
-            audio = download_audio(url, workdir, cookies_from_browser)
+            audio = download_audio(url, workdir, cookies_from_browser, ffmpeg_location)
             if not audio:
                 logging.error("Skipping %s (download failed).", shortcode)
                 continue

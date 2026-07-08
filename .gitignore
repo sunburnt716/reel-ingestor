@@ -1,19 +1,68 @@
-# Local config with personal paths — never commit
+# ============================================================
+#  SECRETS — never commit these
+# ============================================================
+# Local config with personal paths / settings
 config.json
 
-# Runtime state and logs
+# Gmail API credentials and cached auth token
+credentials.json
+token.json
+# Google downloads the OAuth client as client_secret_*.json before renaming
+client_secret*.json
+*.credentials.json
+
+# Generic secret/env files
+.env
+.env.*
+*.pem
+*.key
+
+# ============================================================
+#  Runtime state & logs
+# ============================================================
 processed.json
 reel_transcriber.log
 *.log
 
-# Python
-__pycache__/
-*.pyc
-.venv/
-venv/
-env/
-
-# Audio scratch (should never persist, but just in case)
+# ============================================================
+#  Downloaded media scratch (should be temp, but just in case)
+# ============================================================
 *.mp3
 *.m4a
 *.webm
+*.mp4
+*.wav
+*.part
+*.ytdl
+
+# ============================================================
+#  Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# ============================================================
+#  Editors / OS cruft
+# ============================================================
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
