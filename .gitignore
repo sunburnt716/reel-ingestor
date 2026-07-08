@@ -1,0 +1,19 @@
+# Local config with personal paths — never commit
+config.json
+
+# Runtime state and logs
+processed.json
+reel_transcriber.log
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Audio scratch (should never persist, but just in case)
+*.mp3
+*.m4a
+*.webm
